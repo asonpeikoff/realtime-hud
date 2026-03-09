@@ -166,7 +166,6 @@ export class OpenAIRealtimeProvider implements AIProvider {
         modalities: ['text'],
         instructions: this.systemPrompt,
         input_audio_format: 'pcm16',
-        output_audio_format: 'pcm16',
         input_audio_transcription: { model: 'whisper-1' },
         turn_detection: {
           type: 'server_vad',

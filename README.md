@@ -1,6 +1,6 @@
 # Realtime HUD
 
-A Heads-Up Display powered by the OpenAI Realtime API (`gpt-realtime-1.5`).
+A Heads-Up Display powered by the OpenAI Realtime API (`gpt-4o-realtime-preview`).
 
 Analyzes your screen captures and audio streams in real-time, surfacing useful supplementary information, insights, and confirmations directly in your HUD.
 
@@ -75,7 +75,7 @@ npm start
 Browser (React + Vite)
   └─ WebSocket ──▶ Node.js / Express proxy
                        └─ WebSocket ──▶ OpenAI Realtime API
-                                           (gpt-realtime-1.5)
+                                            (gpt-4o-realtime-preview)
 ```
 
 The API key is stored server-side only. The browser connects to a local WebSocket proxy that forwards traffic to OpenAI.
@@ -86,7 +86,7 @@ The `AIProvider` interface (`src/types/index.ts`) is designed for swappability:
 
 | Status | Provider |
 |--------|----------|
-| ✅ | OpenAI Realtime (`gpt-realtime-1.5`) |
+| ✅ | OpenAI Realtime (`gpt-4o-realtime-preview`) |
 | 🗓 | Other cloud providers (Gemini Live, etc.) |
 | 🗓 | Fully offline/private local model |
 
@@ -96,5 +96,5 @@ The `AIProvider` interface (`src/types/index.ts`) is designed for swappability:
 |----------|---------|-------------|
 | `OPENAI_API_KEY` | required | Your OpenAI API key |
 | `PORT` | `3001` | Server port |
-| `OPENAI_MODEL` | `gpt-realtime-1.5` | Realtime model to use |
+| `OPENAI_MODEL` | `gpt-4o-realtime-preview` | Realtime model to use |
 Heads Up Display with RT AI. Will start with OpenAI, but provider agnostic.
