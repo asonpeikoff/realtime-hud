@@ -1,6 +1,7 @@
 import { createServer } from 'http';
 import express from 'express';
 import { WebSocket, WebSocketServer } from 'ws';
+import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
@@ -21,9 +22,25 @@ if (!OPENAI_API_KEY) {
 const app = express();
 app.use(express.json());
 
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 120,            // 120 requests per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use('/api', apiLimiter);
+
 // In production, serve the built client files
 if (IS_PRODUCTION) {
+  const staticLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
   const clientDist = path.join(__dirname, '..', 'client');
+  app.use(staticLimiter);
   app.use(express.static(clientDist));
   app.get('*', (_req, res) => {
     res.sendFile(path.join(clientDist, 'index.html'));
