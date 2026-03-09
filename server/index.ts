@@ -12,6 +12,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? '';
 const OPENAI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-realtime-1.5';
+const HUD_SYSTEM_PROMPT = process.env.HUD_SYSTEM_PROMPT ?? '';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 if (!OPENAI_API_KEY) {
@@ -31,7 +32,20 @@ const apiLimiter = rateLimit({
 
 app.use('/api', apiLimiter);
 
-// In production, serve the built client files
+// Health check endpoint
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok', model: OPENAI_MODEL });
+});
+
+// Config endpoint (non-sensitive)
+app.get('/api/config', (_req, res) => {
+  res.json({
+    model: OPENAI_MODEL,
+    ...(HUD_SYSTEM_PROMPT ? { systemPrompt: HUD_SYSTEM_PROMPT } : {}),
+  });
+});
+
+// In production, serve the built client files (after API routes so wildcards don't catch /api/*)
 if (IS_PRODUCTION) {
   const staticLimiter = rateLimit({
     windowMs: 60 * 1000,
@@ -46,16 +60,6 @@ if (IS_PRODUCTION) {
     res.sendFile(path.join(clientDist, 'index.html'));
   });
 }
-
-// Health check endpoint
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', model: OPENAI_MODEL });
-});
-
-// Config endpoint (non-sensitive)
-app.get('/api/config', (_req, res) => {
-  res.json({ model: OPENAI_MODEL });
-});
 
 // Create HTTP server
 const server = createServer(app);

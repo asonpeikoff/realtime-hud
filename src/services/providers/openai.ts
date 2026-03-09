@@ -6,7 +6,7 @@ interface RealtimeEvent {
   [key: string]: unknown;
 }
 
-const SYSTEM_PROMPT = `You are a real-time HUD (Heads-Up Display) assistant. You analyze screen captures and audio to provide useful supplementary information about what the user is viewing.
+const DEFAULT_SYSTEM_PROMPT = `You are a real-time HUD (Heads-Up Display) assistant. You analyze screen captures and audio to provide useful supplementary information about what the user is viewing.
 
 Guidelines:
 - Provide concise, relevant insights about what's on screen
@@ -29,6 +29,7 @@ export class OpenAIRealtimeProvider implements AIProvider {
   private events: AIProviderEvents | null = null;
   private _state: RecordingState = 'idle';
   private sessionConfigured = false;
+  private systemPrompt = DEFAULT_SYSTEM_PROMPT;
 
   get state(): RecordingState {
     return this._state;
@@ -42,6 +43,16 @@ export class OpenAIRealtimeProvider implements AIProvider {
   async connect(events: AIProviderEvents): Promise<void> {
     this.events = events;
     this.setState('connecting');
+
+    // Fetch non-sensitive config (includes optional custom system prompt)
+    try {
+      const cfg = await fetch('/api/config').then((r) => r.json() as Promise<{ model?: string; systemPrompt?: string }>);
+      if (cfg.systemPrompt) {
+        this.systemPrompt = cfg.systemPrompt;
+      }
+    } catch {
+      // Non-fatal: fall back to default system prompt
+    }
 
     const wsUrl =
       window.location.protocol === 'https:'
@@ -153,7 +164,7 @@ export class OpenAIRealtimeProvider implements AIProvider {
       type: 'session.update',
       session: {
         modalities: ['text'],
-        instructions: SYSTEM_PROMPT,
+        instructions: this.systemPrompt,
         input_audio_format: 'pcm16',
         output_audio_format: 'pcm16',
         input_audio_transcription: { model: 'whisper-1' },

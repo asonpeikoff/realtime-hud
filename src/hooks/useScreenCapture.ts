@@ -20,7 +20,7 @@ export function useScreenCapture(): UseScreenCaptureResult {
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: {
-          frameRate: { ideal: 5, max: 15 }, // Low frame rate is sufficient; we capture periodic screenshots rather than processing every frame
+          frameRate: { ideal: 5, max: 15 }, // Low frame rate reduces bandwidth; screenshot capture interval is controlled separately in App.tsx
           width: { ideal: 1920 },
           height: { ideal: 1080 },
         },

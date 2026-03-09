@@ -29,7 +29,7 @@ export function ScreenCapturePanel({
           className={`w-full h-full object-contain transition-opacity ${
             isCapturing ? 'opacity-100' : 'opacity-0'
           }`}
-          aria-label="Screen capture preview"
+          aria-label={isCapturing ? 'Screen capture preview – live' : 'Screen capture preview – no capture active'}
         />
         {!isCapturing && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-hud-muted gap-2">
