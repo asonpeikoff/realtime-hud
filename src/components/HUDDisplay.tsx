@@ -4,6 +4,7 @@ import type { HUDMessage, RecordingState } from '../types';
 interface HUDDisplayProps {
   messages: HUDMessage[];
   state: RecordingState;
+  captureIntervalSecs?: number;
   onClear: () => void;
   onPopOut?: () => void;
 }
@@ -12,7 +13,7 @@ function formatTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-export function HUDDisplay({ messages, state, onClear, onPopOut }: HUDDisplayProps) {
+export function HUDDisplay({ messages, state, captureIntervalSecs = 10, onClear, onPopOut }: HUDDisplayProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when new messages arrive
@@ -100,7 +101,7 @@ export function HUDDisplay({ messages, state, onClear, onPopOut }: HUDDisplayPro
       {state === 'active' && !isEmpty && (
         <div className="px-4 py-2 border-t border-hud-border bg-hud-bg/30">
           <p className="text-xs text-hud-muted/60 text-center">
-            Screen captures sent every 10 seconds • Audio streamed continuously
+            Screen captures sent every {captureIntervalSecs} seconds • Audio streamed continuously
           </p>
         </div>
       )}

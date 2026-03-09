@@ -203,6 +203,7 @@ export default function App() {
           <HUDDisplay
             messages={session.messages}
             state={session.state}
+            captureIntervalSecs={captureIntervalSecs}
             onClear={session.clearMessages}
             onPopOut={handlePopOut}
           />
