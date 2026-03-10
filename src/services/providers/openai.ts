@@ -1,4 +1,12 @@
-import type { AIProvider, AIProviderEvents, AITextDelta, AIResponseItem, RecordingState } from '../../types';
+import type {
+  AIConnectOptions,
+  AIProvider,
+  AIProviderEvents,
+  AITextDelta,
+  AIResponseItem,
+  RecordingState,
+  RealtimeInterface,
+} from '../../types';
 
 /** OpenAI Realtime API event types */
 interface RealtimeEvent {
@@ -24,12 +32,18 @@ Guidelines:
  */
 export class OpenAIRealtimeProvider implements AIProvider {
   readonly name = 'OpenAI Realtime';
+  private static readonly HUD_CANVAS_ITEM_ID = 'hud-canvas';
 
   private ws: WebSocket | null = null;
   private events: AIProviderEvents | null = null;
   private _state: RecordingState = 'idle';
   private sessionConfigured = false;
   private systemPrompt = DEFAULT_SYSTEM_PROMPT;
+  private mode: 'realtime' | 'responses' = 'realtime';
+  private model = 'gpt-realtime-1.5';
+  private realtimeInterface: RealtimeInterface = 'beta';
+  private latestCanvas = '';
+  private hudRequestInFlight = false;
 
   get state(): RecordingState {
     return this._state;
@@ -40,10 +54,15 @@ export class OpenAIRealtimeProvider implements AIProvider {
     this.events?.onStateChange(state);
   }
 
-  async connect(events: AIProviderEvents): Promise<void> {
+  async connect(events: AIProviderEvents, options?: AIConnectOptions): Promise<void> {
     this.events = events;
     this.sessionConfigured = false;
     this.setState('connecting');
+    this.mode = options?.mode ?? 'realtime';
+    this.model = options?.model ?? 'gpt-realtime-1.5';
+    this.realtimeInterface = options?.realtimeInterface ?? 'beta';
+    this.latestCanvas = '';
+    this.hudRequestInFlight = false;
 
     // Fetch non-sensitive config (includes optional custom system prompt)
     try {
@@ -55,10 +74,21 @@ export class OpenAIRealtimeProvider implements AIProvider {
       // Non-fatal: fall back to default system prompt
     }
 
+    if (this.mode === 'responses') {
+      this.sessionConfigured = true;
+      this.setState('active');
+      this.events?.onConnected();
+      return;
+    }
+
+    const params = new URLSearchParams({
+      model: this.model,
+      realtime_interface: this.realtimeInterface,
+    });
     const wsUrl =
       window.location.protocol === 'https:'
-        ? `wss://${window.location.host}/api/realtime`
-        : `ws://${window.location.host}/api/realtime`;
+        ? `wss://${window.location.host}/api/realtime?${params.toString()}`
+        : `ws://${window.location.host}/api/realtime?${params.toString()}`;
 
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -115,6 +145,8 @@ export class OpenAIRealtimeProvider implements AIProvider {
 
   disconnect(): void {
     this.sessionConfigured = false;
+    this.latestCanvas = '';
+    this.hudRequestInFlight = false;
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.close();
     }
@@ -123,6 +155,7 @@ export class OpenAIRealtimeProvider implements AIProvider {
   }
 
   sendAudio(pcm16Buffer: ArrayBuffer): void {
+    if (this.mode === 'responses') return;
     if (!this.isReady()) return;
     const base64 = btoa(String.fromCharCode(...new Uint8Array(pcm16Buffer)));
     this.send({
@@ -133,6 +166,11 @@ export class OpenAIRealtimeProvider implements AIProvider {
 
   sendImage(base64Jpeg: string, prompt = 'Analyze this screen capture and provide a brief HUD insight.'): void {
     if (!this.isReady()) return;
+
+    if (this.mode === 'responses') {
+      void this.requestHudNote({ imageBase64: base64Jpeg, prompt });
+      return;
+    }
 
     this.send({
       type: 'conversation.item.create',
@@ -153,11 +191,21 @@ export class OpenAIRealtimeProvider implements AIProvider {
       },
     });
 
-    this.send({ type: 'response.create' });
+    this.send({
+      type: 'response.create',
+      response: {
+        modalities: ['text'],
+      },
+    });
   }
 
   sendText(text: string): void {
     if (!this.isReady()) return;
+
+    if (this.mode === 'responses') {
+      void this.requestHudNote({ prompt: text });
+      return;
+    }
 
     this.send({
       type: 'conversation.item.create',
@@ -168,11 +216,74 @@ export class OpenAIRealtimeProvider implements AIProvider {
       },
     });
 
-    this.send({ type: 'response.create' });
+    this.send({
+      type: 'response.create',
+      response: {
+        modalities: ['text'],
+      },
+    });
   }
 
   private isReady(): boolean {
+    if (this.mode === 'responses') {
+      return this.sessionConfigured && this._state === 'active';
+    }
     return this.ws?.readyState === WebSocket.OPEN && this.sessionConfigured;
+  }
+
+  private async requestHudNote({ imageBase64, prompt }: { imageBase64?: string; prompt: string }): Promise<void> {
+    if (this.hudRequestInFlight) return;
+    this.hudRequestInFlight = true;
+
+    try {
+      const response = await fetch('/api/hud-note', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: this.model,
+          prompt,
+          imageBase64,
+          previousCanvas: this.latestCanvas,
+        }),
+      });
+
+      const data = (await response.json()) as {
+        text?: string;
+        board?: string;
+        changed?: boolean;
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(data.error ?? `HUD note request failed (${response.status})`);
+      }
+
+      const boardText = (data.board ?? data.text ?? '').trim();
+      if (!boardText) {
+        return;
+      }
+
+      if (data.changed === false || boardText === this.latestCanvas) {
+        return;
+      }
+
+      this.latestCanvas = boardText;
+
+      this.events?.onTextDelta({
+        itemId: OpenAIRealtimeProvider.HUD_CANVAS_ITEM_ID,
+        delta: boardText,
+        replace: true,
+      });
+      this.events?.onResponseDone({
+        itemId: OpenAIRealtimeProvider.HUD_CANVAS_ITEM_ID,
+        text: boardText,
+        timestamp: Date.now(),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to generate HUD note.';
+      this.events?.onError(message);
+    } finally {
+      this.hudRequestInFlight = false;
+    }
   }
 
   private send(data: Record<string, unknown>): void {
@@ -185,19 +296,8 @@ export class OpenAIRealtimeProvider implements AIProvider {
     this.send({
       type: 'session.update',
       session: {
-        modalities: ['text'],
+        type: 'realtime',
         instructions: this.systemPrompt,
-        input_audio_format: 'pcm16',
-        output_audio_format: 'pcm16',
-        input_audio_transcription: { model: 'whisper-1' },
-        turn_detection: {
-          type: 'server_vad',
-          threshold: 0.5,
-          prefix_padding_ms: 300,
-          silence_duration_ms: 500,
-        },
-        temperature: 0.7,
-        max_response_output_tokens: 512,
       },
     });
   }
@@ -216,12 +316,35 @@ export class OpenAIRealtimeProvider implements AIProvider {
         resolveConnect?.();
         break;
 
-      case 'response.text.delta': {
+      case 'response.text.delta':
+      case 'response.output_text.delta': {
         const itemId = event.item_id as string;
         const delta = event.delta as string;
         if (itemId && delta) {
           const textDelta: AITextDelta = { itemId, delta };
           this.events?.onTextDelta(textDelta);
+        }
+        break;
+      }
+
+      case 'response.done': {
+        const response = event.response as {
+          output?: Array<{
+            id?: string;
+            content?: Array<{ type: string; text?: string }>;
+          }>;
+        };
+        const outputItems = response?.output ?? [];
+        for (const outputItem of outputItems) {
+          if (!outputItem?.id) continue;
+          const textContent = outputItem.content?.find(
+            (c) => c.type === 'text' || c.type === 'output_text',
+          );
+          this.events?.onResponseDone({
+            itemId: outputItem.id,
+            text: textContent?.text ?? '',
+            timestamp: Date.now(),
+          });
         }
         break;
       }

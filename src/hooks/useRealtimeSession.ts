@@ -1,13 +1,13 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { OpenAIRealtimeProvider } from '../services/providers';
-import type { AIProvider, HUDMessage, RecordingState } from '../types';
+import type { AIConnectOptions, AIProvider, HUDMessage, RecordingState } from '../types';
 
 interface UseRealtimeSessionResult {
   state: RecordingState;
   messages: HUDMessage[];
   error: string | null;
   provider: AIProvider;
-  connect: () => Promise<void>;
+  connect: (options?: AIConnectOptions) => Promise<void>;
   disconnect: () => void;
   clearMessages: () => void;
 }
@@ -27,7 +27,7 @@ export function useRealtimeSession(): UseRealtimeSessionResult {
     };
   }, []);
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (options?: AIConnectOptions) => {
     setError(null);
     setMessages([]);
 
@@ -38,12 +38,12 @@ export function useRealtimeSession(): UseRealtimeSessionResult {
       onDisconnected: () => {
         setState('idle');
       },
-      onTextDelta: ({ itemId, delta }) => {
+      onTextDelta: ({ itemId, delta, replace }) => {
         setMessages((prev) => {
           const existing = prev.find((m) => m.id === itemId);
           if (existing) {
             return prev.map((m) =>
-              m.id === itemId ? { ...m, text: m.text + delta } : m
+              m.id === itemId ? { ...m, text: replace ? delta : m.text + delta, streaming: true } : m
             );
           }
           return [
@@ -64,7 +64,7 @@ export function useRealtimeSession(): UseRealtimeSessionResult {
       onStateChange: (newState) => {
         setState(newState);
       },
-    });
+    }, options);
   }, []);
 
   const disconnect = useCallback(() => {

@@ -3,9 +3,18 @@ import { useState } from 'react';
 interface SettingsPanelProps {
   captureIntervalSecs: number;
   onChangeCaptureInterval: (secs: number) => void;
+  modelChoice: string;
+  modelChoices: Array<{ id: string; label: string }>;
+  onChangeModelChoice: (id: string) => void;
 }
 
-export function SettingsPanel({ captureIntervalSecs, onChangeCaptureInterval }: SettingsPanelProps) {
+export function SettingsPanel({
+  captureIntervalSecs,
+  onChangeCaptureInterval,
+  modelChoice,
+  modelChoices,
+  onChangeModelChoice,
+}: SettingsPanelProps) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -24,22 +33,39 @@ export function SettingsPanel({ captureIntervalSecs, onChangeCaptureInterval }: 
       {open && (
         <div className="px-4 pb-4 space-y-3">
           <div>
+            <label htmlFor="model-choice" className="block text-xs text-hud-muted mb-1">
+              Model
+            </label>
+            <select
+              id="model-choice"
+              value={modelChoice}
+              onChange={(e) => onChangeModelChoice(e.target.value)}
+              className="w-full bg-hud-bg border border-hud-border rounded-lg px-3 py-2 text-sm text-hud-text focus:outline-none focus:ring-1 focus:ring-hud-accent"
+            >
+              {modelChoices.map((choice) => (
+                <option key={choice.id} value={choice.id}>
+                  {choice.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
             <label htmlFor="capture-interval" className="block text-xs text-hud-muted mb-1">
               Screenshot interval: {captureIntervalSecs}s
             </label>
             <input
               id="capture-interval"
               type="range"
-              min={5}
-              max={60}
-              step={5}
+              min={2}
+              max={20}
+              step={1}
               value={captureIntervalSecs}
               onChange={(e) => onChangeCaptureInterval(Number(e.target.value))}
               className="w-full accent-hud-accent"
             />
             <div className="flex justify-between text-xs text-hud-muted/60 mt-0.5">
-              <span>5s (more frequent)</span>
-              <span>60s (less data)</span>
+              <span>2s (more frequent)</span>
+              <span>20s (less data)</span>
             </div>
           </div>
           <div className="text-xs text-hud-muted/70 bg-yellow-900/10 border border-yellow-700/30 rounded-lg px-3 py-2">

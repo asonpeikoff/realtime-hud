@@ -2,12 +2,21 @@
 
 export type RecordingState = 'idle' | 'connecting' | 'active' | 'paused' | 'error';
 
+export type RealtimeInterface = 'ga' | 'beta';
+
+export interface AIConnectOptions {
+  mode: 'realtime' | 'responses';
+  model: string;
+  realtimeInterface?: RealtimeInterface;
+}
+
 // ─── Provider-Agnostic AI Interface ──────────────────────────────────────────
 
 /** A streamed text delta from the AI */
 export interface AITextDelta {
   itemId: string;
   delta: string;
+  replace?: boolean;
 }
 
 /** A completed AI response item */
@@ -32,7 +41,7 @@ export interface AIProvider {
   readonly name: string;
   readonly state: RecordingState;
 
-  connect(events: AIProviderEvents): Promise<void>;
+  connect(events: AIProviderEvents, options?: AIConnectOptions): Promise<void>;
   disconnect(): void;
 
   /** Send a raw audio chunk (PCM16 at 24 kHz, mono) */

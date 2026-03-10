@@ -97,4 +97,5 @@ The `AIProvider` interface (`src/types/index.ts`) is designed for swappability:
 | `OPENAI_API_KEY` | required | Your OpenAI API key |
 | `PORT` | `3001` | Server port |
 | `OPENAI_MODEL` | `gpt-realtime-1.5` | Realtime model to use |
+| `OPENAI_REALTIME_INTERFACE` | `ga` | Realtime protocol interface (`ga` or `beta`) |
 Heads Up Display with RT AI. Will start with OpenAI, but provider agnostic.

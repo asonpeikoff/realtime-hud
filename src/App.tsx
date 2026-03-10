@@ -2,15 +2,38 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { useRealtimeSession } from './hooks/useRealtimeSession';
 import { useScreenCapture } from './hooks/useScreenCapture';
 import { useAudioCapture } from './hooks/useAudioCapture';
-import { captureFrame } from './services/imageCapture';
+import { captureFrameSnapshot, frameSignatureDifference } from './services/imageCapture';
 import { RecordingBadge } from './components/RecordingBadge';
 import { ScreenCapturePanel } from './components/ScreenCapturePanel';
 import { AudioControls } from './components/AudioControls';
 import { HUDDisplay } from './components/HUDDisplay';
 import { TextInputArea } from './components/TextInputArea';
 import { SettingsPanel } from './components/SettingsPanel';
+import type { AIConnectOptions } from './types';
 
 const DEFAULT_CAPTURE_INTERVAL_SECS = 2;
+
+const MODEL_CHOICES = {
+  realtime15ga: {
+    label: 'realtime-1.5 (GA)',
+    options: { mode: 'realtime', model: 'gpt-realtime-1.5', realtimeInterface: 'ga' },
+  },
+  realtime15beta: {
+    label: 'realtime-1.5 (Beta)',
+    options: { mode: 'realtime', model: 'gpt-realtime-1.5', realtimeInterface: 'beta' },
+  },
+  gpt52: {
+    label: 'GPT 5.2',
+    options: { mode: 'responses', model: 'gpt-5.2' },
+  },
+  gpt54: {
+    label: 'GPT 5.4',
+    options: { mode: 'responses', model: 'gpt-5.4' },
+  },
+} as const satisfies Record<string, { label: string; options: AIConnectOptions }>;
+
+type ModelChoiceId = keyof typeof MODEL_CHOICES;
+const DEFAULT_MODEL_CHOICE: ModelChoiceId = 'realtime15beta';
 
 export default function App() {
   const session = useRealtimeSession();
@@ -18,7 +41,9 @@ export default function App() {
   const audio = useAudioCapture();
 
   const captureIntervalRef = useRef<number | null>(null);
+  const lastFrameSignatureRef = useRef<number[] | null>(null);
   const [captureIntervalSecs, setCaptureIntervalSecs] = useState(DEFAULT_CAPTURE_INTERVAL_SECS);
+  const [modelChoice, setModelChoice] = useState<ModelChoiceId>(DEFAULT_MODEL_CHOICE);
   const captureIntervalSecsRef = useRef(captureIntervalSecs);
 
   useEffect(() => {
@@ -28,8 +53,8 @@ export default function App() {
   // ── Session management ──────────────────────────────────────────────────────
 
   const handleStart = useCallback(async () => {
-    await session.connect();
-  }, [session]);
+    await session.connect(MODEL_CHOICES[modelChoice].options);
+  }, [session, modelChoice]);
 
   const handleStop = useCallback(() => {
     // Stop everything
@@ -37,6 +62,7 @@ export default function App() {
     audio.stopSystemAudio();
     screen.stopCapture();
     session.disconnect();
+    lastFrameSignatureRef.current = null;
 
     if (captureIntervalRef.current !== null) {
       clearInterval(captureIntervalRef.current);
@@ -55,9 +81,14 @@ export default function App() {
       // Send the first frame immediately
       const sendFrame = () => {
         if (!screen.videoRef.current) return;
-        const frame = captureFrame(screen.videoRef.current);
-        if (frame) {
-          session.provider.sendImage(frame);
+        const snapshot = captureFrameSnapshot(screen.videoRef.current);
+        if (!snapshot) return;
+
+        const changeAmount = frameSignatureDifference(lastFrameSignatureRef.current, snapshot.signature);
+        const hasMeaningfulChange = lastFrameSignatureRef.current === null || changeAmount >= 0.035;
+        if (hasMeaningfulChange) {
+          lastFrameSignatureRef.current = snapshot.signature;
+          session.provider.sendImage(snapshot.imageBase64);
         }
       };
       sendFrame();
@@ -168,6 +199,19 @@ export default function App() {
               </div>
             )}
 
+            <TextInputArea
+              onSend={(text) => session.provider.sendText(text)}
+              disabled={!isRunning}
+            />
+
+            <SettingsPanel
+              captureIntervalSecs={captureIntervalSecs}
+              onChangeCaptureInterval={setCaptureIntervalSecs}
+              modelChoice={modelChoice}
+              modelChoices={Object.entries(MODEL_CHOICES).map(([id, choice]) => ({ id: id as ModelChoiceId, label: choice.label }))}
+              onChangeModelChoice={(id) => setModelChoice(id as ModelChoiceId)}
+            />
+
             {/* Start / Stop */}
             {!isRunning ? (
               <button
@@ -187,15 +231,6 @@ export default function App() {
               </button>
             )}
           </div>
-
-          <TextInputArea
-            onSend={(text) => session.provider.sendText(text)}
-            disabled={!isRunning}
-          />
-          <SettingsPanel
-            captureIntervalSecs={captureIntervalSecs}
-            onChangeCaptureInterval={setCaptureIntervalSecs}
-          />
         </aside>
 
         {/* Right panel: HUD display */}

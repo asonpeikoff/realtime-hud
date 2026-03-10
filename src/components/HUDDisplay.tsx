@@ -22,6 +22,8 @@ export function HUDDisplay({ messages, state, captureIntervalSecs = 10, onClear,
   }, [messages]);
 
   const isEmpty = messages.length === 0;
+  const canvasMessage = messages.find((msg) => msg.id === 'hud-canvas');
+  const timelineMessages = messages.filter((msg) => msg.id !== 'hud-canvas');
 
   return (
     <div className="flex flex-col h-full bg-hud-panel border border-hud-border rounded-xl overflow-hidden">
@@ -72,27 +74,44 @@ export function HUDDisplay({ messages, state, captureIntervalSecs = 10, onClear,
             </div>
           </div>
         ) : (
-          messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`rounded-lg px-4 py-3 border transition-all ${
-                msg.streaming
-                  ? 'bg-hud-accent/5 border-hud-accent/30'
-                  : 'bg-white/5 border-hud-border/50'
-              }`}
-            >
-              <div className="flex items-start justify-between gap-2 mb-1.5">
-                <span className="text-xs text-hud-muted">{formatTime(msg.timestamp)}</span>
-                {msg.streaming && (
-                  <span className="text-xs text-hud-accent font-medium flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-hud-accent animate-pulse" />
-                    Streaming
-                  </span>
-                )}
+          <>
+            {canvasMessage && (
+              <div className="rounded-xl px-5 py-4 border bg-hud-accent/5 border-hud-accent/25 shadow-[0_0_0_1px_rgba(59,130,246,0.08)]">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.18em] text-hud-accent/80">Live HUD Canvas</p>
+                    <p className="text-xs text-hud-muted mt-1">Updated in place as the screen meaningfully changes</p>
+                  </div>
+                  <span className="text-xs text-hud-muted">{formatTime(canvasMessage.timestamp)}</span>
+                </div>
+                <div className="text-sm text-hud-text leading-relaxed whitespace-pre-wrap">
+                  {canvasMessage.text}
+                </div>
               </div>
-              <p className="text-sm text-hud-text leading-relaxed whitespace-pre-wrap">{msg.text}</p>
-            </div>
-          ))
+            )}
+
+            {timelineMessages.map((msg) => (
+              <div
+                key={msg.id}
+                className={`rounded-lg px-4 py-3 border transition-all ${
+                  msg.streaming
+                    ? 'bg-hud-accent/5 border-hud-accent/30'
+                    : 'bg-white/5 border-hud-border/50'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2 mb-1.5">
+                  <span className="text-xs text-hud-muted">{formatTime(msg.timestamp)}</span>
+                  {msg.streaming && (
+                    <span className="text-xs text-hud-accent font-medium flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-hud-accent animate-pulse" />
+                      Streaming
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-hud-text leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+              </div>
+            ))}
+          </>
         )}
         <div ref={bottomRef} />
       </div>
