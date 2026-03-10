@@ -19,7 +19,7 @@ Guidelines:
 - Flag potential errors, warnings, or important details you notice`;
 
 /**
- * OpenAI Realtime API provider using gpt-realtime-1.5.
+ * OpenAI Realtime API provider using gpt-4o-realtime-preview.
  * Communicates via the backend WebSocket proxy at /api/realtime.
  */
 export class OpenAIRealtimeProvider implements AIProvider {
@@ -63,7 +63,7 @@ export class OpenAIRealtimeProvider implements AIProvider {
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
-        this.configureSession();
+        console.log('[OpenAI Realtime] WebSocket connected, waiting for session.created...');
       };
 
       this.ws.onmessage = (event) => {
@@ -82,8 +82,18 @@ export class OpenAIRealtimeProvider implements AIProvider {
         reject(new Error(msg));
       };
 
-      this.ws.onclose = () => {
-        if (this._state !== 'idle') {
+      this.ws.onclose = (event) => {
+        // Surface any close reason so errors from OpenAI are visible
+        if (event.reason) {
+          console.error('[OpenAI Realtime] WebSocket closed with reason:', event.reason, 'code:', event.code);
+        }
+        if (this._state === 'connecting') {
+          const reason = event.reason ? `: ${event.reason}` : '';
+          const msg = `Connection closed before session was established (code ${event.code})${reason}`;
+          this.setState('error');
+          events.onError(msg);
+          reject(new Error(msg));
+        } else if (this._state !== 'idle') {
           this.setState('idle');
           events.onDisconnected();
         }
@@ -124,7 +134,7 @@ export class OpenAIRealtimeProvider implements AIProvider {
           },
           {
             type: 'input_image',
-            image: `data:image/jpeg;base64,${base64Jpeg}`,
+            image_url: `data:image/jpeg;base64,${base64Jpeg}`,
             detail: 'auto',
           },
         ],
@@ -183,7 +193,12 @@ export class OpenAIRealtimeProvider implements AIProvider {
   private handleEvent(event: RealtimeEvent, resolveConnect?: (value: void) => void): void {
     switch (event.type) {
       case 'session.created':
+        // Initial session from OpenAI – now send our configuration
+        this.configureSession();
+        break;
+
       case 'session.updated':
+        // Our session.update was applied; session is fully ready
         this.sessionConfigured = true;
         this.setState('active');
         this.events?.onConnected();
@@ -218,7 +233,7 @@ export class OpenAIRealtimeProvider implements AIProvider {
 
       case 'error': {
         const errMsg = (event.error as { message?: string })?.message ?? 'Unknown error';
-        console.error('[OpenAI Realtime] Error:', errMsg);
+        console.error('[OpenAI Realtime] Error event:', errMsg, event);
         this.events?.onError(errMsg);
         break;
       }

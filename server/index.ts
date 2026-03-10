@@ -11,7 +11,7 @@ dotenv.config();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? '';
-const OPENAI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-realtime-1.5';
+const OPENAI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o-realtime-preview';
 const HUD_SYSTEM_PROMPT = process.env.HUD_SYSTEM_PROMPT ?? '';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
@@ -75,7 +75,6 @@ wss.on('connection', (clientWs) => {
     {
       headers: {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
-        'OpenAI-Beta': 'realtime=v1',
       },
     }
   );
@@ -123,8 +122,22 @@ wss.on('connection', (clientWs) => {
   });
 
   openaiWs.on('close', (code, reason) => {
-    console.log(`[server] OpenAI WebSocket closed: ${code} ${reason.toString()}`);
+    const reasonStr = reason.toString();
+    const isAbnormal = code !== 1000 && code !== 1001;
+    if (isAbnormal || reasonStr) {
+      console.error(`[server] OpenAI WebSocket closed: code=${code} reason=${reasonStr || '(none)'}`);
+    } else {
+      console.log(`[server] OpenAI WebSocket closed: code=${code}`);
+    }
     if (clientWs.readyState === WebSocket.OPEN) {
+      if (isAbnormal) {
+        clientWs.send(
+          JSON.stringify({
+            type: 'error',
+            error: { message: `OpenAI session closed unexpectedly (code ${code})${reasonStr ? ': ' + reasonStr : ''}` },
+          })
+        );
+      }
       clientWs.close();
     }
   });
