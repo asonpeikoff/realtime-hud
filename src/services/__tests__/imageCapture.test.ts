@@ -19,15 +19,33 @@ describe('captureFrame', () => {
     Object.defineProperty(videoElement, 'videoHeight', { value: 2160, configurable: true });
 
     const canvasSpy = vi.spyOn(document, 'createElement');
+    const realCreateElement = document.createElement.bind(document);
+    let canvasCount = 0;
     const mockCanvas = {
       width: 0,
       height: 0,
-      getContext: vi.fn().mockReturnValue({ drawImage: vi.fn() }),
+      getContext: vi.fn().mockReturnValue({
+        drawImage: vi.fn(),
+        getImageData: vi.fn().mockReturnValue({ data: new Uint8ClampedArray(16 * 16 * 4) }),
+      }),
       toDataURL: vi.fn().mockReturnValue('data:image/jpeg;base64,abc123'),
     };
     canvasSpy.mockImplementation((tag: string) => {
-      if (tag === 'canvas') return mockCanvas as unknown as HTMLCanvasElement;
-      return document.createElement(tag);
+      if (tag === 'canvas') {
+        canvasCount += 1;
+        if (canvasCount === 1) {
+          return mockCanvas as unknown as HTMLCanvasElement;
+        }
+        return {
+          width: 0,
+          height: 0,
+          getContext: vi.fn().mockReturnValue({
+            drawImage: vi.fn(),
+            getImageData: vi.fn().mockReturnValue({ data: new Uint8ClampedArray(16 * 16 * 4) }),
+          }),
+        } as unknown as HTMLCanvasElement;
+      }
+      return realCreateElement(tag);
     });
 
     captureFrame(videoElement, 0.6, 1280);
@@ -43,15 +61,33 @@ describe('captureFrame', () => {
     Object.defineProperty(videoElement, 'videoHeight', { value: 600, configurable: true });
 
     const canvasSpy = vi.spyOn(document, 'createElement');
+    const realCreateElement = document.createElement.bind(document);
+    let canvasCount = 0;
     const mockCanvas = {
       width: 0,
       height: 0,
-      getContext: vi.fn().mockReturnValue({ drawImage: vi.fn() }),
+      getContext: vi.fn().mockReturnValue({
+        drawImage: vi.fn(),
+        getImageData: vi.fn().mockReturnValue({ data: new Uint8ClampedArray(16 * 16 * 4) }),
+      }),
       toDataURL: vi.fn().mockReturnValue('data:image/jpeg;base64,abc123'),
     };
     canvasSpy.mockImplementation((tag: string) => {
-      if (tag === 'canvas') return mockCanvas as unknown as HTMLCanvasElement;
-      return document.createElement(tag);
+      if (tag === 'canvas') {
+        canvasCount += 1;
+        if (canvasCount === 1) {
+          return mockCanvas as unknown as HTMLCanvasElement;
+        }
+        return {
+          width: 0,
+          height: 0,
+          getContext: vi.fn().mockReturnValue({
+            drawImage: vi.fn(),
+            getImageData: vi.fn().mockReturnValue({ data: new Uint8ClampedArray(16 * 16 * 4) }),
+          }),
+        } as unknown as HTMLCanvasElement;
+      }
+      return realCreateElement(tag);
     });
 
     captureFrame(videoElement, 0.6, 1280);
@@ -67,15 +103,33 @@ describe('captureFrame', () => {
     Object.defineProperty(videoElement, 'videoHeight', { value: 480, configurable: true });
 
     const canvasSpy = vi.spyOn(document, 'createElement');
+    const realCreateElement = document.createElement.bind(document);
+    let canvasCount = 0;
     const mockCanvas = {
       width: 0,
       height: 0,
-      getContext: vi.fn().mockReturnValue({ drawImage: vi.fn() }),
+      getContext: vi.fn().mockReturnValue({
+        drawImage: vi.fn(),
+        getImageData: vi.fn().mockReturnValue({ data: new Uint8ClampedArray(16 * 16 * 4) }),
+      }),
       toDataURL: vi.fn().mockReturnValue('data:image/jpeg;base64,SGVsbG8='),
     };
     canvasSpy.mockImplementation((tag: string) => {
-      if (tag === 'canvas') return mockCanvas as unknown as HTMLCanvasElement;
-      return document.createElement(tag);
+      if (tag === 'canvas') {
+        canvasCount += 1;
+        if (canvasCount === 1) {
+          return mockCanvas as unknown as HTMLCanvasElement;
+        }
+        return {
+          width: 0,
+          height: 0,
+          getContext: vi.fn().mockReturnValue({
+            drawImage: vi.fn(),
+            getImageData: vi.fn().mockReturnValue({ data: new Uint8ClampedArray(16 * 16 * 4) }),
+          }),
+        } as unknown as HTMLCanvasElement;
+      }
+      return realCreateElement(tag);
     });
 
     const result = captureFrame(videoElement);

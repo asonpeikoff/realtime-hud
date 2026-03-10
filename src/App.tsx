@@ -11,7 +11,7 @@ import { TextInputArea } from './components/TextInputArea';
 import { SettingsPanel } from './components/SettingsPanel';
 import type { AIConnectOptions } from './types';
 
-const DEFAULT_CAPTURE_INTERVAL_SECS = 2;
+const DEFAULT_CAPTURE_INTERVAL_SECS = 5;
 
 const MODEL_CHOICES = {
   realtime15ga: {
@@ -157,7 +157,7 @@ export default function App() {
   const systemAudioAvailable = !!(screen.stream && screen.stream.getAudioTracks().length > 0);
 
   return (
-    <div className="min-h-screen bg-hud-bg text-hud-text flex flex-col">
+    <div className="h-screen bg-hud-bg text-hud-text flex flex-col overflow-hidden">
       {/* Top bar */}
       <header className="flex items-center justify-between px-6 py-3 border-b border-hud-border bg-hud-panel/50 backdrop-blur">
         <div className="flex items-center gap-3">
@@ -171,10 +171,10 @@ export default function App() {
       </header>
 
       {/* Main content */}
-      <main className="flex-1 flex overflow-hidden p-4 gap-4">
+      <main className="flex-1 min-h-0 flex overflow-hidden p-4 gap-4">
         {/* Left panel: inputs */}
-        <aside className="w-80 flex-shrink-0 flex flex-col bg-hud-panel border border-hud-border rounded-xl overflow-hidden">
-          <div className="flex-1 overflow-y-auto p-4 space-y-5">
+        <aside className="w-80 min-h-0 flex-shrink-0 flex flex-col bg-hud-panel border border-hud-border rounded-xl overflow-hidden">
+          <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-5">
             <ScreenCapturePanel
               isCapturing={screen.isCapturing}
               stream={screen.stream}
@@ -234,7 +234,7 @@ export default function App() {
         </aside>
 
         {/* Right panel: HUD display */}
-        <section className="flex-1 min-w-0">
+        <section className="flex-1 min-w-0 min-h-0">
           <HUDDisplay
             messages={session.messages}
             state={session.state}

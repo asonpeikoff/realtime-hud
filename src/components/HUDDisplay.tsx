@@ -14,11 +14,21 @@ function formatTime(timestamp: number): string {
 }
 
 export function HUDDisplay({ messages, state, captureIntervalSecs = 10, onClear, onPopOut }: HUDDisplayProps) {
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const shouldStickToBottomRef = useRef(true);
 
-  // Auto-scroll to bottom when new messages arrive
+  const handleScroll = () => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    shouldStickToBottomRef.current = distanceFromBottom <= 40;
+  };
+
+  // Keep the view pinned to the latest updates only while the user is near the bottom.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!shouldStickToBottomRef.current) return;
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages]);
 
   const isEmpty = messages.length === 0;
@@ -58,7 +68,11 @@ export function HUDDisplay({ messages, state, captureIntervalSecs = 10, onClear,
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 scrollbar-thin">
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto px-4 py-3 space-y-3 scrollbar-thin"
+      >
         {isEmpty ? (
           <div className="flex flex-col items-center justify-center h-full text-center text-hud-muted gap-3 py-12">
             <span className="text-4xl opacity-40">💡</span>

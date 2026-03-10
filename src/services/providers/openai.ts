@@ -34,7 +34,9 @@ export class OpenAIRealtimeProvider implements AIProvider {
   readonly name = 'OpenAI Realtime';
   private static readonly HUD_CANVAS_ITEM_ID = 'hud-canvas';
 
-  private ws: WebSocket | null = null;
+  private pc: RTCPeerConnection | null = null;
+  private dataChannel: RTCDataChannel | null = null;
+  private audioElement: HTMLAudioElement | null = null;
   private events: AIProviderEvents | null = null;
   private _state: RecordingState = 'idle';
   private sessionConfigured = false;
@@ -44,6 +46,11 @@ export class OpenAIRealtimeProvider implements AIProvider {
   private realtimeInterface: RealtimeInterface = 'beta';
   private latestCanvas = '';
   private hudRequestInFlight = false;
+  private pendingHudRequest: { imageBase64?: string; prompt: string } | null = null;
+  private refreshTimer: number | null = null;
+  private responseInFlight = false;
+  private responseQueued = false;
+  private draftCanvas = '';
 
   get state(): RecordingState {
     return this._state;
@@ -63,6 +70,10 @@ export class OpenAIRealtimeProvider implements AIProvider {
     this.realtimeInterface = options?.realtimeInterface ?? 'beta';
     this.latestCanvas = '';
     this.hudRequestInFlight = false;
+    this.pendingHudRequest = null;
+    this.responseInFlight = false;
+    this.responseQueued = false;
+    this.draftCanvas = '';
 
     // Fetch non-sensitive config (includes optional custom system prompt)
     try {
@@ -81,15 +92,6 @@ export class OpenAIRealtimeProvider implements AIProvider {
       return;
     }
 
-    const params = new URLSearchParams({
-      model: this.model,
-      realtime_interface: this.realtimeInterface,
-    });
-    const wsUrl =
-      window.location.protocol === 'https:'
-        ? `wss://${window.location.host}/api/realtime?${params.toString()}`
-        : `ws://${window.location.host}/api/realtime?${params.toString()}`;
-
     return new Promise((resolve, reject) => {
       let settled = false;
       const resolveOnce = () => {
@@ -105,41 +107,7 @@ export class OpenAIRealtimeProvider implements AIProvider {
         }
       };
 
-      this.ws = new WebSocket(wsUrl);
-
-      this.ws.onopen = () => {
-        this.configureSession();
-      };
-
-      this.ws.onmessage = (event) => {
-        try {
-          const data: RealtimeEvent = JSON.parse(event.data as string);
-          this.handleEvent(data, resolveOnce, rejectOnce);
-        } catch {
-          // Ignore non-JSON messages
-        }
-      };
-
-      this.ws.onerror = () => {
-        const msg = 'WebSocket connection failed. Is the server running?';
-        this.setState('error');
-        events.onError(msg);
-        rejectOnce(new Error(msg));
-      };
-
-      this.ws.onclose = () => {
-        if (this._state === 'connecting') {
-          const msg = 'Realtime connection closed before session initialization.';
-          this.setState('error');
-          events.onError(msg);
-          rejectOnce(new Error(msg));
-          return;
-        }
-        if (this._state !== 'idle') {
-          this.setState('idle');
-          events.onDisconnected();
-        }
-      };
+      void this.connectRealtime(resolveOnce, rejectOnce, events);
     });
   }
 
@@ -147,10 +115,20 @@ export class OpenAIRealtimeProvider implements AIProvider {
     this.sessionConfigured = false;
     this.latestCanvas = '';
     this.hudRequestInFlight = false;
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.close();
+    this.pendingHudRequest = null;
+    this.responseInFlight = false;
+    this.responseQueued = false;
+    this.draftCanvas = '';
+    if (this.refreshTimer !== null) {
+      window.clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
     }
-    this.ws = null;
+    this.dataChannel?.close();
+    this.dataChannel = null;
+    this.pc?.close();
+    this.pc = null;
+    this.audioElement?.remove();
+    this.audioElement = null;
     this.setState('idle');
   }
 
@@ -184,19 +162,13 @@ export class OpenAIRealtimeProvider implements AIProvider {
           },
           {
             type: 'input_image',
-            image: `data:image/jpeg;base64,${base64Jpeg}`,
+            image_url: `data:image/jpeg;base64,${base64Jpeg}`,
             detail: 'auto',
           },
         ],
       },
     });
-
-    this.send({
-      type: 'response.create',
-      response: {
-        modalities: ['text'],
-      },
-    });
+    this.queueRealtimeRefresh();
   }
 
   sendText(text: string): void {
@@ -215,24 +187,141 @@ export class OpenAIRealtimeProvider implements AIProvider {
         content: [{ type: 'input_text', text }],
       },
     });
-
-    this.send({
-      type: 'response.create',
-      response: {
-        modalities: ['text'],
-      },
-    });
+    this.queueRealtimeRefresh();
   }
 
   private isReady(): boolean {
     if (this.mode === 'responses') {
       return this.sessionConfigured && this._state === 'active';
     }
-    return this.ws?.readyState === WebSocket.OPEN && this.sessionConfigured;
+    return this.dataChannel?.readyState === 'open' && this.sessionConfigured;
+  }
+
+  private async connectRealtime(
+    resolveConnect: () => void,
+    rejectConnect: (error: Error) => void,
+    events: AIProviderEvents,
+  ): Promise<void> {
+    try {
+      const params = new URLSearchParams({
+        model: this.model,
+        realtime_interface: this.realtimeInterface,
+      });
+      const sessionResponse = await fetch(`/api/session?${params.toString()}`);
+      if (!sessionResponse.ok) {
+        throw new Error(await sessionResponse.text());
+      }
+
+      const session = (await sessionResponse.json()) as { value?: string };
+      const sessionToken = session.value;
+      if (!sessionToken) {
+        throw new Error('Realtime client secret is missing from /api/session');
+      }
+
+      this.pc = new RTCPeerConnection();
+      this.pc.addTransceiver('audio', { direction: 'sendrecv' });
+      this.audioElement = document.createElement('audio');
+      this.audioElement.autoplay = true;
+      this.pc.ontrack = (event) => {
+        this.audioElement!.srcObject = event.streams[0] ?? null;
+      };
+      this.pc.onconnectionstatechange = () => {
+        if (!this.pc) return;
+        if (this.pc.connectionState === 'failed' || this.pc.connectionState === 'closed') {
+          const msg = `Realtime peer connection ${this.pc.connectionState}.`;
+          if (this._state === 'connecting') {
+            this.setState('error');
+            events.onError(msg);
+            rejectConnect(new Error(msg));
+            return;
+          }
+          this.setState('idle');
+          events.onDisconnected();
+        }
+      };
+
+      this.dataChannel = this.pc.createDataChannel('oai-events');
+      this.dataChannel.addEventListener('open', () => {
+        this.configureSession();
+      });
+      this.dataChannel.addEventListener('message', (event) => {
+        try {
+          const data: RealtimeEvent = JSON.parse(event.data as string);
+          this.handleEvent(data, resolveConnect, rejectConnect);
+        } catch {
+          // Ignore non-JSON messages
+        }
+      });
+      this.dataChannel.addEventListener('close', () => {
+        if (this._state === 'connecting') {
+          const msg = 'Realtime data channel closed before session initialization.';
+          this.setState('error');
+          events.onError(msg);
+          rejectConnect(new Error(msg));
+          return;
+        }
+        if (this._state !== 'idle') {
+          this.setState('idle');
+          events.onDisconnected();
+        }
+      });
+
+      const offer = await this.pc.createOffer();
+      await this.pc.setLocalDescription(offer);
+
+      const sdpResponse = await fetch('https://api.openai.com/v1/realtime/calls', {
+        method: 'POST',
+        body: offer.sdp,
+        headers: {
+          Authorization: `Bearer ${sessionToken}`,
+          'Content-Type': 'application/sdp',
+        },
+      });
+
+      if (!sdpResponse.ok) {
+        throw new Error(await sdpResponse.text());
+      }
+
+      const answer: RTCSessionDescriptionInit = {
+        type: 'answer',
+        sdp: await sdpResponse.text(),
+      };
+      await this.pc.setRemoteDescription(answer);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to initialize realtime session.';
+      this.setState('error');
+      events.onError(message);
+      rejectConnect(new Error(message));
+    }
+  }
+
+  private queueRealtimeRefresh(delayMs = 1200): void {
+    this.responseQueued = true;
+    if (this.refreshTimer !== null) {
+      window.clearTimeout(this.refreshTimer);
+    }
+    this.refreshTimer = window.setTimeout(() => {
+      this.refreshTimer = null;
+      this.flushRealtimeRefresh();
+    }, delayMs);
+  }
+
+  private flushRealtimeRefresh(): void {
+    if (!this.isReady()) return;
+    if (!this.responseQueued || this.responseInFlight) return;
+    this.responseQueued = false;
+    this.responseInFlight = true;
+    this.draftCanvas = '';
+    this.send({
+      type: 'response.create',
+    });
   }
 
   private async requestHudNote({ imageBase64, prompt }: { imageBase64?: string; prompt: string }): Promise<void> {
-    if (this.hudRequestInFlight) return;
+    if (this.hudRequestInFlight) {
+      this.pendingHudRequest = { imageBase64, prompt };
+      return;
+    }
     this.hudRequestInFlight = true;
 
     try {
@@ -283,12 +372,17 @@ export class OpenAIRealtimeProvider implements AIProvider {
       this.events?.onError(message);
     } finally {
       this.hudRequestInFlight = false;
+      if (this.pendingHudRequest) {
+        const nextRequest = this.pendingHudRequest;
+        this.pendingHudRequest = null;
+        void this.requestHudNote(nextRequest);
+      }
     }
   }
 
   private send(data: Record<string, unknown>): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(data));
+    if (this.mode === 'realtime' && this.dataChannel?.readyState === 'open') {
+      this.dataChannel.send(JSON.stringify(data));
     }
   }
 
@@ -318,10 +412,14 @@ export class OpenAIRealtimeProvider implements AIProvider {
 
       case 'response.text.delta':
       case 'response.output_text.delta': {
-        const itemId = event.item_id as string;
         const delta = event.delta as string;
-        if (itemId && delta) {
-          const textDelta: AITextDelta = { itemId, delta };
+        if (delta) {
+          this.draftCanvas += delta;
+          const textDelta: AITextDelta = {
+            itemId: OpenAIRealtimeProvider.HUD_CANVAS_ITEM_ID,
+            delta: this.draftCanvas,
+            replace: true,
+          };
           this.events?.onTextDelta(textDelta);
         }
         break;
@@ -335,17 +433,17 @@ export class OpenAIRealtimeProvider implements AIProvider {
           }>;
         };
         const outputItems = response?.output ?? [];
+        let finalText = this.draftCanvas;
         for (const outputItem of outputItems) {
           if (!outputItem?.id) continue;
           const textContent = outputItem.content?.find(
             (c) => c.type === 'text' || c.type === 'output_text',
           );
-          this.events?.onResponseDone({
-            itemId: outputItem.id,
-            text: textContent?.text ?? '',
-            timestamp: Date.now(),
-          });
+          if (textContent?.text) {
+            finalText = textContent.text;
+          }
         }
+        this.finishRealtimeResponse(finalText);
         break;
       }
 
@@ -358,12 +456,7 @@ export class OpenAIRealtimeProvider implements AIProvider {
           const textContent = item.content?.find(
             (c) => c.type === 'text' || c.type === 'output_text',
           );
-          const responseItem: AIResponseItem = {
-            itemId: item.id,
-            text: textContent?.text ?? '',
-            timestamp: Date.now(),
-          };
-          this.events?.onResponseDone(responseItem);
+          this.finishRealtimeResponse(textContent?.text ?? this.draftCanvas);
         }
         break;
       }
@@ -371,6 +464,7 @@ export class OpenAIRealtimeProvider implements AIProvider {
       case 'error': {
         const errMsg = (event.error as { message?: string })?.message ?? 'Unknown error';
         console.error('[OpenAI Realtime] Error:', errMsg);
+        this.responseInFlight = false;
         if (this._state === 'connecting') {
           this.setState('error');
           rejectConnect?.(new Error(errMsg));
@@ -381,6 +475,29 @@ export class OpenAIRealtimeProvider implements AIProvider {
 
       default:
         break;
+    }
+  }
+
+  private finishRealtimeResponse(text: string): void {
+    const finalText = text.trim();
+    this.responseInFlight = false;
+    if (finalText) {
+      this.latestCanvas = finalText;
+      this.events?.onTextDelta({
+        itemId: OpenAIRealtimeProvider.HUD_CANVAS_ITEM_ID,
+        delta: finalText,
+        replace: true,
+      });
+      const responseItem: AIResponseItem = {
+        itemId: OpenAIRealtimeProvider.HUD_CANVAS_ITEM_ID,
+        text: finalText,
+        timestamp: Date.now(),
+      };
+      this.events?.onResponseDone(responseItem);
+    }
+    this.draftCanvas = '';
+    if (this.responseQueued) {
+      this.queueRealtimeRefresh(250);
     }
   }
 }

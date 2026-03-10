@@ -56,7 +56,7 @@ export function SettingsPanel({
             <input
               id="capture-interval"
               type="range"
-              min={2}
+              min={1}
               max={20}
               step={1}
               value={captureIntervalSecs}
@@ -64,7 +64,7 @@ export function SettingsPanel({
               className="w-full accent-hud-accent"
             />
             <div className="flex justify-between text-xs text-hud-muted/60 mt-0.5">
-              <span>2s (more frequent)</span>
+              <span>1s (more frequent)</span>
               <span>20s (less data)</span>
             </div>
           </div>
