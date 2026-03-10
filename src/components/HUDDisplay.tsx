@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { Fragment, useEffect, useRef } from 'react';
+import type { ReactNode } from 'react';
 import type { HUDMessage, RecordingState } from '../types';
 
 interface HUDDisplayProps {
@@ -11,6 +12,131 @@ interface HUDDisplayProps {
 
 function formatTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function renderInlineMarkdown(text: string): ReactNode[] {
+  const tokens = text.split(/(\[[^\]]+\]\([^\)]+\)|\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean);
+
+  return tokens.map((token, index) => {
+    const linkMatch = token.match(/^\[([^\]]+)\]\(([^\)]+)\)$/);
+    if (linkMatch) {
+      const [, label, href] = linkMatch;
+      return (
+        <a
+          key={`link-${index}`}
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          className="text-hud-accent underline decoration-hud-accent/40 underline-offset-2 hover:decoration-hud-accent"
+        >
+          {label}
+        </a>
+      );
+    }
+
+    const boldMatch = token.match(/^\*\*([^*]+)\*\*$/);
+    if (boldMatch) {
+      return <strong key={`strong-${index}`} className="font-semibold text-hud-text">{boldMatch[1]}</strong>;
+    }
+
+    const codeMatch = token.match(/^`([^`]+)`$/);
+    if (codeMatch) {
+      return (
+        <code
+          key={`code-${index}`}
+          className="px-1.5 py-0.5 rounded bg-black/20 border border-white/10 text-hud-accent/90 text-[0.92em]"
+        >
+          {codeMatch[1]}
+        </code>
+      );
+    }
+
+    return <Fragment key={`text-${index}`}>{token}</Fragment>;
+  });
+}
+
+function renderMarkdownBlocks(text: string): ReactNode {
+  const lines = text.split(/\r?\n/);
+  const blocks: ReactNode[] = [];
+  let bulletItems: string[] = [];
+  let paragraphLines: string[] = [];
+
+  const flushBullets = () => {
+    if (bulletItems.length === 0) return;
+    blocks.push(
+      <ul key={`ul-${blocks.length}`} className="space-y-1.5 pl-5 list-disc text-hud-text/95 marker:text-hud-accent/70">
+        {bulletItems.map((item, index) => (
+          <li key={`li-${index}`} className="leading-relaxed">
+            {renderInlineMarkdown(item)}
+          </li>
+        ))}
+      </ul>
+    );
+    bulletItems = [];
+  };
+
+  const flushParagraph = () => {
+    if (paragraphLines.length === 0) return;
+    blocks.push(
+      <p key={`p-${blocks.length}`} className="leading-relaxed text-hud-text/95">
+        {renderInlineMarkdown(paragraphLines.join(' '))}
+      </p>
+    );
+    paragraphLines = [];
+  };
+
+  lines.forEach((rawLine) => {
+    const line = rawLine.trim();
+
+    if (!line) {
+      flushBullets();
+      flushParagraph();
+      return;
+    }
+
+    const headingMatch = line.match(/^(#{1,3})\s+(.*)$/);
+    if (headingMatch) {
+      flushBullets();
+      flushParagraph();
+      const level = headingMatch[1].length;
+      const content = renderInlineMarkdown(headingMatch[2]);
+
+      if (level === 1) {
+        blocks.push(
+          <h1 key={`h1-${blocks.length}`} className="text-lg font-semibold tracking-tight text-hud-text">
+            {content}
+          </h1>
+        );
+      } else if (level === 2) {
+        blocks.push(
+          <h2 key={`h2-${blocks.length}`} className="text-sm font-semibold uppercase tracking-[0.14em] text-hud-accent/85 pt-2">
+            {content}
+          </h2>
+        );
+      } else {
+        blocks.push(
+          <h3 key={`h3-${blocks.length}`} className="text-sm font-semibold text-hud-text/90 pt-1">
+            {content}
+          </h3>
+        );
+      }
+      return;
+    }
+
+    const bulletMatch = line.match(/^[-*]\s+(.*)$/);
+    if (bulletMatch) {
+      flushParagraph();
+      bulletItems.push(bulletMatch[1]);
+      return;
+    }
+
+    paragraphLines.push(line);
+  });
+
+  flushBullets();
+  flushParagraph();
+
+  return <div className="space-y-3">{blocks}</div>;
 }
 
 export function HUDDisplay({ messages, state, captureIntervalSecs = 10, onClear, onPopOut }: HUDDisplayProps) {
@@ -99,7 +225,7 @@ export function HUDDisplay({ messages, state, captureIntervalSecs = 10, onClear,
                   <span className="text-xs text-hud-muted">{formatTime(canvasMessage.timestamp)}</span>
                 </div>
                 <div className="text-sm text-hud-text leading-relaxed whitespace-pre-wrap">
-                  {canvasMessage.text}
+                  {renderMarkdownBlocks(canvasMessage.text)}
                 </div>
               </div>
             )}
@@ -122,7 +248,9 @@ export function HUDDisplay({ messages, state, captureIntervalSecs = 10, onClear,
                     </span>
                   )}
                 </div>
-                <p className="text-sm text-hud-text leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+                <div className="text-sm text-hud-text leading-relaxed">
+                  {renderMarkdownBlocks(msg.text)}
+                </div>
               </div>
             ))}
           </>

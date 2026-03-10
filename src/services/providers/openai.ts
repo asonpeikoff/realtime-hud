@@ -222,6 +222,8 @@ export class OpenAIRealtimeProvider implements AIProvider {
       this.pc.addTransceiver('audio', { direction: 'sendrecv' });
       this.audioElement = document.createElement('audio');
       this.audioElement.autoplay = true;
+      this.audioElement.muted = true;
+      this.audioElement.volume = 0;
       this.pc.ontrack = (event) => {
         this.audioElement!.srcObject = event.streams[0] ?? null;
       };
@@ -314,6 +316,9 @@ export class OpenAIRealtimeProvider implements AIProvider {
     this.draftCanvas = '';
     this.send({
       type: 'response.create',
+      response: {
+        output_modalities: ['text'],
+      },
     });
   }
 
@@ -391,6 +396,7 @@ export class OpenAIRealtimeProvider implements AIProvider {
       type: 'session.update',
       session: {
         type: 'realtime',
+        output_modalities: ['text'],
         instructions: this.systemPrompt,
       },
     });
