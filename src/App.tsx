@@ -10,7 +10,7 @@ import { HUDDisplay } from './components/HUDDisplay';
 import { TextInputArea } from './components/TextInputArea';
 import { SettingsPanel } from './components/SettingsPanel';
 
-const DEFAULT_CAPTURE_INTERVAL_SECS = 10;
+const DEFAULT_CAPTURE_INTERVAL_SECS = 5;
 
 export default function App() {
   const session = useRealtimeSession();
