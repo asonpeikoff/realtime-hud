@@ -11,7 +11,7 @@ dotenv.config();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? '';
-const OPENAI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o-realtime-preview';
+const OPENAI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-realtime-1.5';
 const HUD_SYSTEM_PROMPT = process.env.HUD_SYSTEM_PROMPT ?? '';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
