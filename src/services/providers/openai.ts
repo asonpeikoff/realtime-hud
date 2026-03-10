@@ -19,7 +19,7 @@ Guidelines:
 - Flag potential errors, warnings, or important details you notice`;
 
 /**
- * OpenAI Realtime API provider using gpt-realtime-1.5.
+ * OpenAI Realtime API provider using a server-configured realtime model.
  * Communicates via the backend WebSocket proxy at /api/realtime.
  */
 export class OpenAIRealtimeProvider implements AIProvider {
@@ -42,6 +42,7 @@ export class OpenAIRealtimeProvider implements AIProvider {
 
   async connect(events: AIProviderEvents): Promise<void> {
     this.events = events;
+    this.sessionConfigured = false;
     this.setState('connecting');
 
     // Fetch non-sensitive config (includes optional custom system prompt)
@@ -60,6 +61,20 @@ export class OpenAIRealtimeProvider implements AIProvider {
         : `ws://${window.location.host}/api/realtime`;
 
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const resolveOnce = () => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      };
+      const rejectOnce = (error: Error) => {
+        if (!settled) {
+          settled = true;
+          reject(error);
+        }
+      };
+
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
@@ -69,7 +84,7 @@ export class OpenAIRealtimeProvider implements AIProvider {
       this.ws.onmessage = (event) => {
         try {
           const data: RealtimeEvent = JSON.parse(event.data as string);
-          this.handleEvent(data, resolve);
+          this.handleEvent(data, resolveOnce, rejectOnce);
         } catch {
           // Ignore non-JSON messages
         }
@@ -79,10 +94,17 @@ export class OpenAIRealtimeProvider implements AIProvider {
         const msg = 'WebSocket connection failed. Is the server running?';
         this.setState('error');
         events.onError(msg);
-        reject(new Error(msg));
+        rejectOnce(new Error(msg));
       };
 
       this.ws.onclose = () => {
+        if (this._state === 'connecting') {
+          const msg = 'Realtime connection closed before session initialization.';
+          this.setState('error');
+          events.onError(msg);
+          rejectOnce(new Error(msg));
+          return;
+        }
         if (this._state !== 'idle') {
           this.setState('idle');
           events.onDisconnected();
@@ -180,7 +202,11 @@ export class OpenAIRealtimeProvider implements AIProvider {
     });
   }
 
-  private handleEvent(event: RealtimeEvent, resolveConnect?: (value: void) => void): void {
+  private handleEvent(
+    event: RealtimeEvent,
+    resolveConnect?: () => void,
+    rejectConnect?: (error: Error) => void,
+  ): void {
     switch (event.type) {
       case 'session.created':
       case 'session.updated':
@@ -201,17 +227,20 @@ export class OpenAIRealtimeProvider implements AIProvider {
       }
 
       case 'response.output_item.done': {
-        const item = event.item as { id?: string; content?: Array<{ type: string; text?: string }> };
-        if (item?.content) {
-          const textContent = item.content.find((c) => c.type === 'text');
-          if (textContent?.text) {
-            const responseItem: AIResponseItem = {
-              itemId: item.id ?? crypto.randomUUID(),
-              text: textContent.text,
-              timestamp: Date.now(),
-            };
-            this.events?.onResponseDone(responseItem);
-          }
+        const item = event.item as {
+          id?: string;
+          content?: Array<{ type: string; text?: string }>;
+        };
+        if (item?.id) {
+          const textContent = item.content?.find(
+            (c) => c.type === 'text' || c.type === 'output_text',
+          );
+          const responseItem: AIResponseItem = {
+            itemId: item.id,
+            text: textContent?.text ?? '',
+            timestamp: Date.now(),
+          };
+          this.events?.onResponseDone(responseItem);
         }
         break;
       }
@@ -219,6 +248,10 @@ export class OpenAIRealtimeProvider implements AIProvider {
       case 'error': {
         const errMsg = (event.error as { message?: string })?.message ?? 'Unknown error';
         console.error('[OpenAI Realtime] Error:', errMsg);
+        if (this._state === 'connecting') {
+          this.setState('error');
+          rejectConnect?.(new Error(errMsg));
+        }
         this.events?.onError(errMsg);
         break;
       }
