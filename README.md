@@ -32,7 +32,7 @@ Analyzes your screen captures and audio streams in real-time, surfacing useful s
 ### 2. Install
 
 ```bash
-git clone https://github.com/hack-r/realtime-hud.git
+git clone https://github.com/asonpeikoff/realtime-hud.git
 cd realtime-hud
 npm install
 ```
